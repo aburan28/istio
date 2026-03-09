@@ -30,6 +30,7 @@ import (
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/core"
 	"istio.io/istio/pilot/pkg/networking/core/route"
@@ -43,6 +44,7 @@ import (
 	"istio.io/istio/pkg/config/mesh"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
+	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/util/sets"
 	"istio.io/istio/pkg/wellknown"
 )
@@ -1473,6 +1475,44 @@ func TestBuildHTTPRoutes(t *testing.T) {
 		g.Expect(extProcPerRoute.GetOverrides().GetProcessingMode().GetResponseBodyMode()).To(Equal(extproc.ProcessingMode_FULL_DUPLEX_STREAMED))
 		g.Expect(extProcPerRoute.GetOverrides().GetProcessingMode().GetResponseHeaderMode()).To(Equal(extproc.ProcessingMode_SEND))
 		g.Expect(extProcPerRoute.GetOverrides().GetFailureModeAllow().GetValue()).To(BeTrue())
+	})
+	t.Run("for virtual service with service-level external processing labels", func(t *testing.T) {
+		test.SetAtomicBoolForTest(t, features.EnableExternalProcessingFilter, true)
+		g := NewWithT(t)
+		cg := core.NewConfigGenTest(t, core.TestOptions{})
+
+		sr := map[host.Name]*model.Service{
+			"*.example.org": {
+				Hostname:       "*.example.org",
+				DefaultAddress: "1.1.1.1",
+				Ports: model.PortList{
+					&model.Port{
+						Name:     "default",
+						Port:     8080,
+						Protocol: protocol.HTTP,
+					},
+				},
+				Attributes: model.ServiceAttributes{
+					Labels: map[string]string{
+						features.ExternalProcessingLabel: "ext-proc-svc.test-namespace.svc.cluster.local:9002",
+					},
+				},
+			},
+		}
+
+		routes, err := route.BuildHTTPRoutesForVirtualService(node(cg), virtualServicePlain, 8080, gatewayNames, buildRouteOpts(sr, nil))
+		xdstest.ValidateRoutes(t, routes)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(routes[0].GetTypedPerFilterConfig()).To(HaveKey(wellknown.HTTPExternalProcessing))
+
+		extProcPerRoute := new(extproc.ExtProcPerRoute)
+		if err := routes[0].GetTypedPerFilterConfig()[wellknown.HTTPExternalProcessing].UnmarshalTo(extProcPerRoute); err != nil {
+			t.Errorf("couldn't unmarshal any proto: %v \n", err)
+		}
+		// nolint lll
+		g.Expect(extProcPerRoute.GetOverrides().GetGrpcService().GetTargetSpecifier().(*envoycore.GrpcService_EnvoyGrpc_).EnvoyGrpc.GetClusterName()).To(Equal("outbound|9002||ext-proc-svc.test-namespace.svc.cluster.local"))
+		g.Expect(extProcPerRoute.GetOverrides().GetProcessingMode().GetRequestHeaderMode()).To(Equal(extproc.ProcessingMode_SEND))
+		g.Expect(extProcPerRoute.GetOverrides().GetProcessingMode().GetResponseHeaderMode()).To(Equal(extproc.ProcessingMode_SEND))
 	})
 	t.Run("for virtualservices with with wildcard hosts outside of the serviceregistry (on port 80)", func(t *testing.T) {
 		g := NewWithT(t)

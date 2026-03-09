@@ -566,9 +566,11 @@ func TranslateRoute(
 		out.TypedPerFilterConfig[wellknown.CORS] = protoconv.MessageToAny(TranslateCORSPolicy(node, in.CorsPolicy))
 	}
 	var statefulConfig *statefulsession.StatefulSession
+	var extProcPerRouteConfig *extproc.ExtProcPerRoute
 	for _, hostname := range hostnames {
 		svc := opts.LookupService(hostname)
 		perSvcStatefulConfig := util.MaybeBuildStatefulSessionFilterConfig(svc)
+		perSvcExtProcConfig := util.MaybeBuildExternalProcessingPerRouteConfig(svc)
 		// This means we have more than one stateful config for the same route because of weighed destinations.
 		// We should just pick the first and give a warning.
 		if perSvcStatefulConfig != nil && statefulConfig != nil {
@@ -576,6 +578,11 @@ func TranslateRoute(
 			break
 		}
 		statefulConfig = perSvcStatefulConfig
+		if perSvcExtProcConfig != nil && extProcPerRouteConfig != nil {
+			log.Warnf("More than one external processing config for the same route %s. Picking the first one.", routeName)
+			break
+		}
+		extProcPerRouteConfig = perSvcExtProcConfig
 	}
 	// Build stateful set config if the svc has appropriate labels attached.
 	if statefulConfig != nil {
@@ -588,6 +595,13 @@ func TranslateRoute(
 			},
 		}
 		out.TypedPerFilterConfig[util.StatefulSessionFilter] = protoconv.MessageToAny(perRouteStatefulSession)
+	}
+	// Service-level ext_proc is lower precedence than explicit route-level inference ext_proc configuration.
+	if extProcPerRouteConfig != nil && out.TypedPerFilterConfig[wellknown.HTTPExternalProcessing] == nil {
+		if out.TypedPerFilterConfig == nil {
+			out.TypedPerFilterConfig = make(map[string]*anypb.Any)
+		}
+		out.TypedPerFilterConfig[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(extProcPerRouteConfig)
 	}
 
 	if opts.IsHTTP3AltSvcHeaderNeeded {

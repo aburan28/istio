@@ -411,11 +411,16 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 		// TODO: these feel like the wrong place to insert, but this retains backwards compatibility with the original implementation
 		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_STATS)
 		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_UNSPECIFIED_PHASE)
+		extProcAdded := false
 		// Add ExtProc per listener only if the Gateway has any inferencePool attached to it
 		if kubeGwName, ok := lb.node.Labels[label.IoK8sNetworkingGatewayGatewayName.Name]; ok {
 			if lb.push.GatewayAPIController.HasInferencePool(types.NamespacedName{Name: kubeGwName, Namespace: lb.node.GetNamespace()}) {
 				filters = append(filters, xdsfilters.InferencePoolExtProc)
+				extProcAdded = true
 			}
+		}
+		if !extProcAdded && util.HasExternalProcessingConfig(lb.push.GetAllServices()) {
+			filters = append(filters, xdsfilters.EmptyExternalProcessing)
 		}
 	}
 

@@ -169,6 +169,26 @@ var (
 			TypedConfig: protoconv.MessageToAny(&statefulsession.StatefulSession{}),
 		},
 	}
+	EmptyExternalProcessing = &hcm.HttpFilter{
+		Name: wellknown.HTTPExternalProcessing,
+		ConfigType: &hcm.HttpFilter_TypedConfig{
+			TypedConfig: protoconv.MessageToAny(&extproc.ExternalProcessor{
+				GrpcService: &core.GrpcService{
+					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
+							ClusterName: "dummy",
+						},
+					},
+					Timeout: &durationpb.Duration{Seconds: 10},
+				},
+				FailureModeAllow: true,
+				ProcessingMode: &extproc.ProcessingMode{
+					RequestHeaderMode:  extproc.ProcessingMode_SKIP,
+					ResponseHeaderMode: extproc.ProcessingMode_SKIP,
+				},
+			}),
+		},
+	}
 	InferencePoolExtProc = &hcm.HttpFilter{
 		Name: wellknown.HTTPExternalProcessing,
 		ConfigType: &hcm.HttpFilter_TypedConfig{

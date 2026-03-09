@@ -27,6 +27,7 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	statefulsession "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	cookiev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/stateful_session/cookie/v3"
@@ -46,6 +47,7 @@ import (
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/schema/gvk"
 	kubelabels "istio.io/istio/pkg/kube/labels"
 	"istio.io/istio/pkg/log"
@@ -803,6 +805,72 @@ func MaybeBuildStatefulSessionFilterConfig(svc *model.Service) *statefulsession.
 		}
 	}
 	return nil
+}
+
+func HasExternalProcessingConfig(services []*model.Service) bool {
+	if !features.EnableExternalProcessingFilter.Load() || features.ExternalProcessingLabel == "" {
+		return false
+	}
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+		if _, found := svc.Attributes.Labels[features.ExternalProcessingLabel]; found {
+			return true
+		}
+	}
+	return false
+}
+
+func MaybeBuildExternalProcessingPerRouteConfig(svc *model.Service) *extproc.ExtProcPerRoute {
+	if svc == nil || !features.EnableExternalProcessingFilter.Load() || features.ExternalProcessingLabel == "" {
+		return nil
+	}
+	target, found := svc.Attributes.Labels[features.ExternalProcessingLabel]
+	if !found || target == "" {
+		return nil
+	}
+	extHost, extPort, err := net.SplitHostPort(target)
+	if err != nil {
+		log.Warnf("invalid external processing target %q for service %s: %v", target, svc.Hostname, err)
+		return nil
+	}
+	portNum, err := strconv.Atoi(extPort)
+	if err != nil {
+		log.Warnf("invalid external processing port %q for service %s: %v", extPort, svc.Hostname, err)
+		return nil
+	}
+
+	failureModeAllow := false
+	if features.ExternalProcessingFailureModeAllowLabel != "" {
+		if configuredFailureMode, hasLabel := svc.Attributes.Labels[features.ExternalProcessingFailureModeAllowLabel]; hasLabel && configuredFailureMode != "" {
+			value, parseErr := strconv.ParseBool(configuredFailureMode)
+			if parseErr != nil {
+				log.Warnf("invalid external processing failure_mode_allow %q for service %s: %v", configuredFailureMode, svc.Hostname, parseErr)
+			} else {
+				failureModeAllow = value
+			}
+		}
+	}
+
+	return &extproc.ExtProcPerRoute{
+		Override: &extproc.ExtProcPerRoute_Overrides{
+			Overrides: &extproc.ExtProcOverrides{
+				FailureModeAllow: &wrapperspb.BoolValue{Value: failureModeAllow},
+				GrpcService: &core.GrpcService{
+					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
+							ClusterName: model.BuildSubsetKey(model.TrafficDirectionOutbound, "", host.Name(extHost), portNum),
+						},
+					},
+				},
+				ProcessingMode: &extproc.ProcessingMode{
+					RequestHeaderMode:  extproc.ProcessingMode_SEND,
+					ResponseHeaderMode: extproc.ProcessingMode_SEND,
+				},
+			},
+		},
+	}
 }
 
 // GetPortLevelTrafficPolicy return the port level traffic policy and true if it exists.

@@ -44,6 +44,7 @@ import (
 	"istio.io/istio/pkg/proto"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/sets"
+	"istio.io/istio/pkg/wellknown"
 )
 
 const (
@@ -443,6 +444,9 @@ func BuildSidecarOutboundVirtualHosts(node *model.Proxy, push *model.PushContext
 					},
 				}
 				pervirtualHostFilters[util.StatefulSessionFilter] = protoconv.MessageToAny(perRouteStatefulSession)
+			}
+			if extProcConfig := util.MaybeBuildExternalProcessingPerRouteConfig(svc); extProcConfig != nil {
+				pervirtualHostFilters[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(extProcConfig)
 			}
 			return &route.VirtualHost{
 				Name:                       name,

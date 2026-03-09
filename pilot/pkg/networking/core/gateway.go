@@ -496,6 +496,9 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTPRouteConfig(node *model.Pr
 							}
 							perRouteFilters[util.StatefulSessionFilter] = protoconv.MessageToAny(perRouteStatefulSession)
 						}
+						if extProcConfig := util.MaybeBuildExternalProcessingPerRouteConfig(gatewayService); extProcConfig != nil {
+							perRouteFilters[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(extProcConfig)
+						}
 					}
 					newVHost := &route.VirtualHost{
 						Name:    util.DomainName(string(hostname), port),

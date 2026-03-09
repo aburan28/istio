@@ -22,6 +22,7 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	statefulsession "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	cookiev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/stateful_session/cookie/v3"
@@ -1490,6 +1491,103 @@ func TestStatefulSessionFilterConfig(t *testing.T) {
 			sessionConfig := MaybeBuildStatefulSessionFilterConfig(tt.service)
 			if !reflect.DeepEqual(tt.expectedconfig, sessionConfig) {
 				t.Errorf("unexpected stateful session filter config, expected: %v, got :%v", tt.expectedconfig, sessionConfig)
+			}
+		})
+	}
+}
+
+func TestHasExternalProcessingConfig(t *testing.T) {
+	test.SetAtomicBoolForTest(t, features.EnableExternalProcessingFilter, true)
+	services := []*model.Service{
+		{
+			Attributes: model.ServiceAttributes{
+				Labels: map[string]string{
+					features.ExternalProcessingLabel: "ext-proc-svc.test-namespace.svc.cluster.local:9002",
+				},
+			},
+		},
+	}
+	if !HasExternalProcessingConfig(services) {
+		t.Fatal("expected external processing config to be detected")
+	}
+}
+
+func TestExternalProcessingPerRouteConfig(t *testing.T) {
+	test.SetAtomicBoolForTest(t, features.EnableExternalProcessingFilter, true)
+	cases := []struct {
+		name            string
+		service         *model.Service
+		wantCluster     string
+		wantFailureMode bool
+		wantNil         bool
+	}{
+		{
+			name: "basic config",
+			service: &model.Service{
+				Attributes: model.ServiceAttributes{
+					Labels: map[string]string{
+						features.ExternalProcessingLabel: "ext-proc-svc.test-namespace.svc.cluster.local:9002",
+					},
+				},
+			},
+			wantCluster: "outbound|9002||ext-proc-svc.test-namespace.svc.cluster.local",
+		},
+		{
+			name: "failure mode allow",
+			service: &model.Service{
+				Attributes: model.ServiceAttributes{
+					Labels: map[string]string{
+						features.ExternalProcessingLabel:                 "ext-proc-svc.test-namespace.svc.cluster.local:9002",
+						features.ExternalProcessingFailureModeAllowLabel: "true",
+					},
+				},
+			},
+			wantCluster:     "outbound|9002||ext-proc-svc.test-namespace.svc.cluster.local",
+			wantFailureMode: true,
+		},
+		{
+			name: "invalid target",
+			service: &model.Service{
+				Attributes: model.ServiceAttributes{
+					Labels: map[string]string{
+						features.ExternalProcessingLabel: "bad-target",
+					},
+				},
+			},
+			wantNil: true,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := MaybeBuildExternalProcessingPerRouteConfig(tt.service)
+			if tt.wantNil {
+				if cfg != nil {
+					t.Fatalf("expected nil config, got %#v", cfg)
+				}
+				return
+			}
+			if cfg == nil {
+				t.Fatal("expected ext proc config, got nil")
+			}
+			overrides := cfg.GetOverrides()
+			if overrides == nil {
+				t.Fatal("expected ext proc overrides")
+			}
+			target, ok := overrides.GetGrpcService().GetTargetSpecifier().(*core.GrpcService_EnvoyGrpc_)
+			if !ok {
+				t.Fatalf("expected envoy grpc target, got %T", overrides.GetGrpcService().GetTargetSpecifier())
+			}
+			if got := target.EnvoyGrpc.GetClusterName(); got != tt.wantCluster {
+				t.Fatalf("unexpected cluster name, got %q want %q", got, tt.wantCluster)
+			}
+			if got := overrides.GetFailureModeAllow().GetValue(); got != tt.wantFailureMode {
+				t.Fatalf("unexpected failure mode allow, got %v want %v", got, tt.wantFailureMode)
+			}
+			if overrides.GetProcessingMode().GetRequestHeaderMode() != extproc.ProcessingMode_SEND {
+				t.Fatalf("unexpected request header mode: %v", overrides.GetProcessingMode().GetRequestHeaderMode())
+			}
+			if overrides.GetProcessingMode().GetResponseHeaderMode() != extproc.ProcessingMode_SEND {
+				t.Fatalf("unexpected response header mode: %v", overrides.GetProcessingMode().GetResponseHeaderMode())
 			}
 		})
 	}

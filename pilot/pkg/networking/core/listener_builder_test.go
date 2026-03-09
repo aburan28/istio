@@ -1014,6 +1014,31 @@ func TestExtProcExistForInferencePoolEnabledGateway(t *testing.T) {
 	t.Fatal("expected ext proc filter to be added")
 }
 
+func TestExtProcExistForServiceLevelExternalProcessing(t *testing.T) {
+	test.SetAtomicBoolForTest(t, features.EnableExternalProcessingFilter, true)
+	svc := buildService("external-processing.example.com", wildcardIPv4, protocol.HTTP, tnow)
+	svc.Attributes.Labels = map[string]string{
+		features.ExternalProcessingLabel: "ext-proc-svc.test-namespace.svc.cluster.local:9002",
+	}
+	cg := NewConfigGenTest(t, TestOptions{
+		Services: []*model.Service{svc},
+	})
+
+	proxy := cg.SetupProxy(nil)
+	lstnrs := cg.Listeners(proxy)
+	vo := xdstest.ExtractListener("0.0.0.0_8080", lstnrs)
+	if vo == nil {
+		t.Fatal("didn't find virtual outbound listener")
+	}
+	for _, fc := range vo.GetFilterChains() {
+		_, httpFilters := xdstest.ExtractFilterNames(t, fc)
+		if slices.Contains(httpFilters, wellknown.HTTPExternalProcessing) {
+			return
+		}
+	}
+	t.Fatal("expected ext proc filter to be added")
+}
+
 func TestPreserveHeader(t *testing.T) {
 	cg := NewConfigGenTest(t, TestOptions{
 		MeshConfig: &meshconfig.MeshConfig{

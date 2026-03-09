@@ -48,6 +48,12 @@ var (
 		"If enabled, Istiod sets up persistent session filter for listeners, if services have 'PILOT_PERSISTENT_SESSION_LABEL' set.",
 	).Get())
 
+	EnableExternalProcessingFilter = atomic.NewBool(env.Register(
+		"PILOT_ENABLE_EXTERNAL_PROCESSING_FILTER",
+		false,
+		"If enabled, Istiod sets up external processing filter for listeners, if services have 'PILOT_EXTERNAL_PROCESSING_LABEL' set.",
+	).Get())
+
 	PersistentSessionLabel = env.Register(
 		"PILOT_PERSISTENT_SESSION_LABEL",
 		"istio.io/persistent-session",
@@ -58,6 +64,18 @@ var (
 		"PILOT_PERSISTENT_SESSION_HEADER_LABEL",
 		"istio.io/persistent-session-header",
 		"If not empty, services with this label will use header based persistent sessions",
+	).Get()
+
+	ExternalProcessingLabel = env.Register(
+		"PILOT_EXTERNAL_PROCESSING_LABEL",
+		"istio.io/external-processing",
+		"If not empty, services with this label in '<fqdn>:<port>' format will use external processing",
+	).Get()
+
+	ExternalProcessingFailureModeAllowLabel = env.Register(
+		"PILOT_EXTERNAL_PROCESSING_FAILURE_MODE_ALLOW_LABEL",
+		"istio.io/external-processing-failure-mode-allow",
+		"If set on a service and parseable as bool, configures ext_proc failure_mode_allow for that service",
 	).Get()
 
 	DrainingLabel = env.Register(
