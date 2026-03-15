@@ -277,6 +277,10 @@ type PushContext struct {
 	InitDone        atomic.Bool
 	initializeMutex sync.Mutex
 	ambientIndex    AmbientIndexes
+
+	// HasExternalProcessingConfig indicates whether any service in the mesh has external processing labels.
+	// Computed once during initServiceRegistry to avoid repeated O(n) scans.
+	HasExternalProcessingConfig bool
 }
 
 type consolidatedDestRules struct {
@@ -1599,6 +1603,15 @@ func (ps *PushContext) initServiceRegistry(env *Environment, configsUpdate sets.
 	}
 
 	ps.initServiceAccounts(env, allServices)
+
+	if features.EnableExternalProcessingFilter.Load() && features.ExternalProcessingLabel != "" {
+		for _, s := range allServices {
+			if _, found := s.Attributes.Labels[features.ExternalProcessingLabel]; found {
+				ps.HasExternalProcessingConfig = true
+				break
+			}
+		}
+	}
 }
 
 // resolveServiceAliases sets the Aliases attributes on all services. The incoming Service's will just have AliasFor set,

@@ -419,7 +419,8 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 				extProcAdded = true
 			}
 		}
-		if !extProcAdded && util.HasExternalProcessingConfig(lb.push.GetAllServices()) {
+		if !extProcAdded && lb.push.HasExternalProcessingConfig &&
+			httpOpts.class != istionetworking.ListenerClassSidecarInbound {
 			filters = append(filters, xdsfilters.EmptyExternalProcessing)
 		}
 	}
