@@ -35,6 +35,7 @@ import (
 	httpv3 "github.com/envoyproxy/go-control-plane/envoy/type/http/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -863,6 +864,7 @@ func MaybeBuildExternalProcessingPerRouteConfig(svc *model.Service) *extproc.Ext
 							ClusterName: model.BuildSubsetKey(model.TrafficDirectionOutbound, "", host.Name(extHost), portNum),
 						},
 					},
+					Timeout: &durationpb.Duration{Seconds: 10},
 				},
 				ProcessingMode: &extproc.ProcessingMode{
 					RequestHeaderMode:  extproc.ProcessingMode_SEND,
